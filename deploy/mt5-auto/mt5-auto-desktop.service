@@ -1,0 +1,14 @@
+[Unit]
+Description=Private desktop for MT5 Auto
+
+[Service]
+Type=simple
+ExecStart=%h/.local/share/metatrader5-auto/remote-desktop.sh
+Restart=on-failure
+RestartSec=5
+RuntimeDirectory=mt5-auto
+RuntimeDirectoryMode=0700
+UMask=0077
+
+[Install]
+WantedBy=default.target

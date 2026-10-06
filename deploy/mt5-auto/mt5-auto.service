@@ -1,0 +1,19 @@
+[Unit]
+Description=MetaTrader 5 Auto
+Requires=mt5-auto-desktop.service
+After=mt5-auto-desktop.service
+
+[Service]
+Type=simple
+Environment=DISPLAY=:96
+Environment=XAUTHORITY=%t/mt5-auto/Xauthority
+Environment=WINEPREFIX=%h/.mt5-auto
+Environment=WINEDEBUG=-all
+WorkingDirectory=%h/.mt5-auto/drive_c/Program Files/MetaTrader 5
+ExecStart=%h/.local/share/metatrader5-auto/start-terminal.sh
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target
