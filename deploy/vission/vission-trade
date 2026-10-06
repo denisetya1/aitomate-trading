@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+engine_root=/home/deni/ai-trading-engine
+market_file=/home/deni/.mt5-auto/drive_c/users/deni/AppData/Roaming/MetaQuotes/Terminal/Common/Files/AITradingEngineV2/market.json
+bridge_directory=/home/deni/.mt5-auto/drive_c/users/deni/AppData/Roaming/MetaQuotes/Terminal/Common/Files/AITradingEngineV2
+
+pending_file=/home/deni/.local/state/aitomate-trading/pending.json
+
+exec env PYTHONPATH="${engine_root}/src" python3 -m ai_trading_engine.cli confirm-pending \
+  --market-json "${market_file}" \
+  --bridge-directory "${bridge_directory}" \
+  --pending-json "${pending_file}" \
+  "$@"

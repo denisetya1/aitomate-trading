@@ -1,6 +1,8 @@
 # ADR 0001: Batas sistem dan otoritas keputusan
 
-Status: diterima untuk REPLAY/SHADOW
+Status: diamendemen untuk REAL
+
+Amendemen 2026-10-07: Deni memilih aktivasi langsung `REAL` untuk akun MT5 Auto. Eksekusi tetap dibatasi pada XAUUSDc, volume tetap 0.01 lot, satu posisi atau pending order, quote maksimum lima detik, kandidat maksimum dua menit, dan konfirmasi manusia `ya` sebelum request ditulis ke bridge. Jalur `DEMO` dan `SHADOW` tidak menjadi prasyarat operasional setelah keputusan ini.
 Tanggal: 2026-10-07
 
 ## Keputusan

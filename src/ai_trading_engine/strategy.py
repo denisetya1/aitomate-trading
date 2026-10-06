@@ -25,6 +25,7 @@ class StrategyConfig:
     stop_buffer_atr: float = 0.20
     expiry_bars: int = 3
     risk_pct: float = 0.25
+    fixed_volume: float | None = 0.01
 
 
 @dataclass(frozen=True)
@@ -152,9 +153,12 @@ def generate_candidate(snapshot: MarketSnapshot, config: StrategyConfig = Strate
     if target is None:
         return StrategyResult(None, "h1_target_missing")
 
-    volume = volume_for_risk(snapshot, entry, stop, config.risk_pct)
+    risk_limited_volume = volume_for_risk(snapshot, entry, stop, config.risk_pct)
+    volume = config.fixed_volume if config.fixed_volume is not None else risk_limited_volume
     if volume <= 0:
         return StrategyResult(None, "risk_budget_below_minimum_volume")
+    if volume > risk_limited_volume:
+        return StrategyResult(None, "fixed_volume_exceeds_risk_budget")
 
     setup_seed = f"{config.version}|{snapshot.snapshot_id}|{direction.value}|{level:.8f}"
     setup_id = sha256(setup_seed.encode("utf-8")).hexdigest()[:20]

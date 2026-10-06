@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+engine_root=/home/deni/ai-trading-engine
+common_root=/home/deni/.mt5-auto/drive_c/users/deni/AppData/Roaming/MetaQuotes/Terminal/Common/Files/AITradingEngineV2
+state_root=/home/deni/.local/state/aitomate-trading
+
+exec env PYTHONPATH="${engine_root}/src" python3 -c \
+  'import json; from pathlib import Path; from ai_trading_engine.scanner import scan_once; print(json.dumps(scan_once(Path("'"${common_root}"'/market.json"), Path("'"${state_root}"'/scanner.json"), Path("'"${state_root}"'/pending.json"))))'

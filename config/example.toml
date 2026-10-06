@@ -1,8 +1,9 @@
 [engine]
-mode = "REPLAY"
+mode = "REAL"
 symbol = "XAUUSDc"
 strategy_version = "trend-pullback-v1.0.0"
-allow_real_execution = false
+allow_real_execution = true
+require_confirmation = true
 
 [market_data]
 market_json = "/home/deni/.mt5-auto/drive_c/users/deni/AppData/Roaming/MetaQuotes/Terminal/Common/Files/AITradingEngineV2/market.json"
@@ -11,6 +12,7 @@ max_spread_points = 80
 require_closed_candles = true
 
 [risk]
+fixed_volume = 0.01
 risk_per_trade_pct = 0.25
 daily_loss_limit_pct = 1.0
 max_positions = 1

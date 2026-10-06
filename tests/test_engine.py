@@ -3,8 +3,9 @@ from __future__ import annotations
 import subprocess
 import unittest
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
-from ai_trading_engine.execution import LockedRealExecutor, RealExecutionLocked, ReplayExecutor
+from ai_trading_engine.execution import FileBridgeExecutor, LockedRealExecutor, RealExecutionLocked, ReplayExecutor
 from ai_trading_engine.hermes import HermesCliValidator, HermesValidationError, parse_validation
 from ai_trading_engine.models import (
     AccountState,
@@ -151,6 +152,20 @@ class ExecutionTests(unittest.TestCase):
     def test_real_execution_is_locked(self) -> None:
         with self.assertRaises(RealExecutionLocked):
             LockedRealExecutor().submit("req-1", candidate())
+
+    def test_real_executor_requires_confirmation(self) -> None:
+        with self.assertRaises(RealExecutionLocked):
+            FileBridgeExecutor(Path("bridge"), confirmation="yes")
+
+    def test_real_executor_writes_fixed_volume_request(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as directory:
+            executor = FileBridgeExecutor(Path(directory), confirmation="REAL")
+            receipt = executor.submit("req-1", candidate(volume=4.0))
+            fields = (Path(directory) / "request.txt").read_text(encoding="ascii").split("|")
+        self.assertTrue(receipt.accepted)
+        self.assertEqual(fields[7], "0.01")
 
     def test_pipeline_records_approved_candidate(self) -> None:
         result = evaluate_candidate(candidate(), snapshot(), ReplayExecutor(), now=NOW)
