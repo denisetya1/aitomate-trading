@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -163,8 +164,36 @@ def submit_real_order(
         print(json.dumps({"ok": False, "error": str(exc)}))
         return 5
     receipt = executor.submit(f"{setup_id}:entry", candidate)
-    print(json.dumps({"ok": receipt.accepted, "setup_id": setup_id, "status": receipt.message, "volume": 0.01}))
-    return 0 if receipt.accepted else 6
+    if not receipt.accepted:
+        print(json.dumps({"ok": False, "setup_id": setup_id, "status": receipt.message, "volume": 0.01}))
+        return 6
+
+    receipt_path = bridge_directory / "receipt.json"
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        try:
+            broker_receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            time.sleep(0.25)
+            continue
+        if broker_receipt.get("request_id") == receipt.request_id:
+            accepted = broker_receipt.get("accepted") is True
+            print(
+                json.dumps(
+                    {
+                        "ok": accepted,
+                        "setup_id": setup_id,
+                        "status": broker_receipt.get("status"),
+                        "order_ticket": broker_receipt.get("order_ticket"),
+                        "deal_ticket": broker_receipt.get("deal_ticket"),
+                        "volume": 0.01,
+                    }
+                )
+            )
+            return 0 if accepted else 7
+        time.sleep(0.25)
+    print(json.dumps({"ok": True, "setup_id": setup_id, "status": "submitted_waiting_receipt", "volume": 0.01}))
+    return 0
 
 
 def confirm_pending_order(market_path: Path, bridge_directory: Path, pending_path: Path, confirmation: str) -> int:
