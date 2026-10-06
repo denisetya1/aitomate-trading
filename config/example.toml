@@ -31,6 +31,6 @@ candidate_expiry_m5_bars = 3
 
 [hermes]
 enabled = true
-profile = "edith"
+profile = "vission"
 timeout_seconds = 90
 fail_closed = true

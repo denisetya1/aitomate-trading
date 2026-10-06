@@ -8,7 +8,7 @@ Engine baru untuk satu strategi XAUUSD. Strategi, risiko, harga entry, SL, TP, d
 - Eksekusi order: adapter replay saja
 - Akun live: dinonaktifkan
 - Simbol broker yang terdeteksi pada mesin MT5: `XAUUSDc`
-- Integrasi Hermes awal: proses CLI terisolasi, tanpa shell
+- Integrasi Hermes awal: agent `vission` melalui proses CLI terisolasi, tanpa shell
 
 ## Menjalankan pemeriksaan
 

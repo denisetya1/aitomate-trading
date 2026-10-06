@@ -54,7 +54,7 @@ class HermesCliValidator:
     def __init__(
         self,
         executable: str = "hermes",
-        profile: str = "edith",
+        profile: str = "vission",
         timeout_seconds: int = 90,
         runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
