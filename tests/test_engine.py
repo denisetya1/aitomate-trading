@@ -7,6 +7,7 @@ from pathlib import Path
 
 from ai_trading_engine.execution import FileBridgeExecutor, LockedRealExecutor, RealExecutionLocked, ReplayExecutor
 from ai_trading_engine.hermes import HermesCliValidator, HermesValidationError, parse_validation
+from ai_trading_engine.learning import PostgresCliLearningStore
 from ai_trading_engine.models import (
     AccountState,
     Candle,
@@ -111,20 +112,29 @@ class RiskTests(unittest.TestCase):
 class HermesTests(unittest.TestCase):
     def test_valid_response(self) -> None:
         result = parse_validation(
-            '{"decision":"APPROVE","setup_id":"setup-1","reason":"structure aligned"}',
+            '{"decision":"APPROVE","setup_id":"setup-1","probability":0.72,"reason":"structure aligned"}',
             candidate(),
             NOW,
         )
         self.assertEqual(result.decision, Decision.APPROVE)
+        self.assertEqual(result.probability, 0.72)
+
+    def test_invalid_probability_is_rejected(self) -> None:
+        with self.assertRaises(HermesValidationError):
+            parse_validation(
+                '{"decision":"APPROVE","setup_id":"setup-1","probability":1.2,"reason":"overconfident"}',
+                candidate(),
+                NOW,
+            )
 
     def test_mismatched_setup_is_rejected(self) -> None:
         with self.assertRaises(HermesValidationError):
-            parse_validation('{"decision":"APPROVE","setup_id":"other","reason":"ok"}', candidate(), NOW)
+            parse_validation('{"decision":"APPROVE","setup_id":"other","probability":0.7,"reason":"ok"}', candidate(), NOW)
 
     def test_parameter_change_is_rejected(self) -> None:
         with self.assertRaises(HermesValidationError):
             parse_validation(
-                '{"decision":"APPROVE","setup_id":"setup-1","reason":"ok","volume":1}', candidate(), NOW
+                '{"decision":"APPROVE","setup_id":"setup-1","probability":0.7,"reason":"ok","volume":1}', candidate(), NOW
             )
 
     def test_cli_uses_argv_without_shell(self) -> None:
@@ -133,7 +143,7 @@ class HermesTests(unittest.TestCase):
         def runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
             calls.append((command, kwargs))
             return subprocess.CompletedProcess(
-                command, 0, '{"decision":"REJECT","setup_id":"setup-1","reason":"conflict"}', ""
+                command, 0, '{"decision":"REJECT","setup_id":"setup-1","probability":0.3,"reason":"conflict"}', ""
             )
 
         result = HermesCliValidator(runner=runner, clock=lambda: NOW).validate(candidate(), snapshot())
@@ -170,6 +180,22 @@ class ExecutionTests(unittest.TestCase):
     def test_pipeline_records_approved_candidate(self) -> None:
         result = evaluate_candidate(candidate(), snapshot(), ReplayExecutor(), now=NOW)
         self.assertEqual(result.status, "RECORDED")
+
+
+class LearningTests(unittest.TestCase):
+    def test_cold_start_uses_strict_probability_gate(self) -> None:
+        store = PostgresCliLearningStore.__new__(PostgresCliLearningStore)
+        store._run = lambda _sql: "0|0|0"  # type: ignore[method-assign]
+        assessment = store.assess(candidate(), 0.75, 2.0)
+        self.assertTrue(assessment.execute)
+        self.assertEqual(assessment.sample_size, 0)
+
+    def test_negative_live_expectancy_blocks_execution(self) -> None:
+        store = PostgresCliLearningStore.__new__(PostgresCliLearningStore)
+        store._run = lambda _sql: "30|20|-0.15"  # type: ignore[method-assign]
+        assessment = store.assess(candidate(), 0.90, 2.0)
+        self.assertFalse(assessment.execute)
+        self.assertEqual(assessment.expectancy_r, -0.15)
 
 
 if __name__ == "__main__":

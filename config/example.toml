@@ -37,3 +37,11 @@ enabled = true
 profile = "vission"
 timeout_seconds = 90
 fail_closed = true
+
+[learning]
+minimum_probability = 0.70
+minimum_expected_r = 0.20
+minimum_calibration_samples = 30
+minimum_lower_probability_bound = 0.45
+promotion_minimum_trades = 100
+promotion_max_drawdown_r = 8.0

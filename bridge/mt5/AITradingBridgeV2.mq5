@@ -196,6 +196,7 @@ string PositionJson(const int index, const int digits)
 
    string result = "{";
    result += "\"ticket\":" + StringFormat("%I64u", ticket);
+   result += ",\"position_id\":" + StringFormat("%I64d", PositionGetInteger(POSITION_IDENTIFIER));
    result += ",\"symbol\":" + JsonString(PositionGetString(POSITION_SYMBOL));
    result += ",\"type\":" + IntegerToString((int)PositionGetInteger(POSITION_TYPE));
    result += ",\"volume\":" + Number(PositionGetDouble(POSITION_VOLUME));
@@ -262,6 +263,37 @@ string OrdersJson(const int digits)
       if(!first)
          result += ",";
       result += item;
+      first = false;
+   }
+   return result + "]";
+}
+
+string DealsJson(const int digits)
+{
+   if(!HistorySelect(TimeCurrent() - 90 * 86400, TimeCurrent()))
+      return "[]";
+   string result = "[";
+   bool first = true;
+   for(int index = 0; index < HistoryDealsTotal(); index++)
+   {
+      ulong ticket = HistoryDealGetTicket(index);
+      if(ticket == 0 || HistoryDealGetInteger(ticket, DEAL_MAGIC) != ExpertMagic)
+         continue;
+      if(!first)
+         result += ",";
+      result += "{";
+      result += "\"ticket\":" + StringFormat("%I64u", ticket);
+      result += ",\"position_id\":" + StringFormat("%I64d", HistoryDealGetInteger(ticket, DEAL_POSITION_ID));
+      result += ",\"entry\":" + IntegerToString((int)HistoryDealGetInteger(ticket, DEAL_ENTRY));
+      result += ",\"type\":" + IntegerToString((int)HistoryDealGetInteger(ticket, DEAL_TYPE));
+      result += ",\"volume\":" + Number(HistoryDealGetDouble(ticket, DEAL_VOLUME));
+      result += ",\"price\":" + Price(HistoryDealGetDouble(ticket, DEAL_PRICE), digits);
+      result += ",\"profit\":" + Number(HistoryDealGetDouble(ticket, DEAL_PROFIT));
+      result += ",\"commission\":" + Number(HistoryDealGetDouble(ticket, DEAL_COMMISSION));
+      result += ",\"swap\":" + Number(HistoryDealGetDouble(ticket, DEAL_SWAP));
+      result += ",\"time_msc\":" + StringFormat("%I64d", HistoryDealGetInteger(ticket, DEAL_TIME_MSC));
+      result += ",\"comment\":" + JsonString(HistoryDealGetString(ticket, DEAL_COMMENT));
+      result += "}";
       first = false;
    }
    return result + "]";
@@ -339,6 +371,7 @@ string BuildSnapshot()
    result += "}";
    result += ",\"positions\":" + PositionsJson(digits);
    result += ",\"orders\":" + OrdersJson(digits);
+   result += ",\"deals\":" + DealsJson(digits);
    result += ",\"candles\":{";
    result += "\"M5\":" + CandlesJson(PERIOD_M5, digits);
    result += ",\"M15\":" + CandlesJson(PERIOD_M15, digits);

@@ -36,18 +36,21 @@ def parse_validation(text: str, candidate: TradeCandidate, now: datetime | None 
         decision = Decision(str(payload["decision"]).upper())
         setup_id = str(payload["setup_id"])
         reason = str(payload["reason"]).strip()
+        probability = float(payload["probability"])
     except (KeyError, ValueError, TypeError) as exc:
         raise HermesValidationError("Invalid Hermes validation schema") from exc
     if setup_id != candidate.setup_id:
         raise HermesValidationError("Hermes setup_id does not match candidate")
     if not reason or len(reason) > 500:
         raise HermesValidationError("Hermes reason is empty or too long")
+    if not 0.0 <= probability <= 1.0:
+        raise HermesValidationError("Hermes probability is outside 0..1")
     if now >= candidate.expires_at:
         raise HermesValidationError("Candidate expired before Hermes response")
     forbidden = {"entry", "stop_loss", "take_profit", "volume", "symbol", "direction"}
     if forbidden.intersection(payload):
         raise HermesValidationError("Hermes attempted to modify trade parameters")
-    return ValidationResult(decision, setup_id, reason, now)
+    return ValidationResult(decision, setup_id, reason, probability, now)
 
 
 class HermesCliValidator:
@@ -110,7 +113,8 @@ class HermesCliValidator:
         return (
             "You validate a fully specified deterministic trade candidate. "
             "Do not propose or modify parameters. Return exactly one JSON object with keys "
-            'decision (APPROVE, REJECT, or ABSTAIN), setup_id, and reason. '
+            "decision (APPROVE, REJECT, or ABSTAIN), setup_id, probability (0..1), and reason. "
+            "Probability means the estimated chance that TP is reached before SL; do not inflate it. "
             f"Input: {json.dumps(payload, separators=(',', ':'))}"
         )
 

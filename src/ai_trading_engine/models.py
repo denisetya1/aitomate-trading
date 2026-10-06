@@ -100,4 +100,5 @@ class ValidationResult:
     decision: Decision
     setup_id: str
     reason: str
+    probability: float
     decided_at: datetime
