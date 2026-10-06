@@ -3,7 +3,7 @@ mode = "REAL"
 symbol = "XAUUSDc"
 strategy_version = "trend-pullback-v1.0.0"
 allow_real_execution = true
-require_confirmation = true
+require_confirmation = false
 
 [market_data]
 market_json = "/home/deni/.mt5-auto/drive_c/users/deni/AppData/Roaming/MetaQuotes/Terminal/Common/Files/AITradingEngineV2/market.json"

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -28,6 +27,7 @@ def scan_once(
     *,
     hermes_executable: str = "/home/deni/.local/bin/hermes",
     sender_executable: str = "/home/deni/.local/bin/vission",
+    trader_executable: str = "/home/deni/.local/bin/vission-trade",
 ) -> dict[str, object]:
     now = datetime.now(timezone.utc)
     snapshot = load_execution_snapshot(market_path)
@@ -47,11 +47,11 @@ def scan_once(
         state = json.loads(state_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         state = {}
-    last_alerted = state.get("last_alerted_at")
-    if isinstance(last_alerted, str):
-        prior = datetime.fromisoformat(last_alerted.replace("Z", "+00:00"))
+    last_execution = state.get("last_execution_at")
+    if isinstance(last_execution, str):
+        prior = datetime.fromisoformat(last_execution.replace("Z", "+00:00"))
         if now - prior < timedelta(minutes=15):
-            return {"status": "alert_cooldown"}
+            return {"status": "execution_cooldown"}
 
     validator = HermesCliValidator(executable=hermes_executable, profile="vission", timeout_seconds=90)
     try:
@@ -72,16 +72,32 @@ def scan_once(
         "volume": 0.01,
     }
     _write_json(pending_path, pending)
+    try:
+        executed = subprocess.run(
+            [trader_executable, "--confirm", "REAL"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        pending_path.unlink(missing_ok=True)
+        return {"status": "execution_failed", "reason": type(exc).__name__}
+    pending_path.unlink(missing_ok=True)
+    execution_text = executed.stdout.strip() or json.dumps(
+        {"ok": False, "error": "empty_execution_result", "code": executed.returncode}
+    )
+    _write_json(state_path, {"last_execution_at": now.isoformat(), "setup_id": candidate.setup_id})
     message = (
-        "Kandidat REAL XAUUSDc\n"
+        "Eksekusi otomatis REAL XAUUSDc\n"
         f"{candidate.direction.value} 0.01 lot\n"
         f"Entry sekitar {candidate.entry:.3f}\n"
         f"SL {candidate.stop_loss:.3f}\n"
         f"TP {candidate.take_profit:.3f}\n"
         f"Estimasi rugi maksimum {risk.estimated_loss:.2f} dalam mata uang akun\n"
         f"Reward/risk {risk.net_reward_risk:.2f}\n"
-        f"Vission: {validation.reason}\n\n"
-        "Balas: ya / tidak (berlaku 2 menit)"
+        f"Vission: {validation.reason}\n"
+        f"Hasil MT5: {execution_text}"
     )
     sent = subprocess.run(
         [sender_executable, "send", "--to", "telegram", message],
@@ -91,7 +107,14 @@ def scan_once(
         timeout=30,
     )
     if sent.returncode != 0:
-        pending_path.unlink(missing_ok=True)
-        return {"status": "notification_failed", "code": sent.returncode}
-    _write_json(state_path, {"last_alerted_at": now.isoformat(), "setup_id": candidate.setup_id})
-    return {"status": "confirmation_requested", "setup_id": candidate.setup_id}
+        return {
+            "status": "notification_failed",
+            "code": sent.returncode,
+            "execution_code": executed.returncode,
+            "execution_result": execution_text,
+        }
+    return {
+        "status": "executed" if executed.returncode == 0 else "execution_rejected",
+        "setup_id": candidate.setup_id,
+        "execution_result": execution_text,
+    }
