@@ -44,10 +44,11 @@ def doctor(path: Path) -> int:
     spec = payload.get("symbol_spec") or {}
     snapshot_age = (now - captured_at).total_seconds() if captured_at else None
     report = {
-        "ok": snapshot_age is not None and snapshot_age >= -1,
+        "ok": snapshot_age is not None and -1 <= snapshot_age <= 5,
         "symbol": payload.get("symbol"),
         "snapshot_age_seconds": round(snapshot_age, 3) if snapshot_age is not None else None,
         "future_snapshot": snapshot_age is not None and snapshot_age < -1,
+        "stale_snapshot": snapshot_age is None or snapshot_age > 5,
         "candle_counts": candle_counts,
         "open_position_count": len(payload.get("positions") or []),
         "pending_order_count": len(payload.get("orders") or []),

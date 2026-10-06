@@ -21,9 +21,12 @@ Setiap snapshot harus memiliki `schema_version`, `snapshot_id`, `captured_at`, `
 
 Setiap permintaan order harus memiliki `request_id`, `setup_id`, `created_at`, `expires_at`, mode, simbol, jenis aksi, arah, volume, harga, SL, TP, deviasi maksimum, dan komentar. EA harus menyimpan `request_id` yang sudah diproses agar retry tidak menggandakan order.
 
+## Bridge v2 MT5 Auto
+
+Bridge read-only v2 dipasang pada instance MT5 Auto yang terisolasi. Snapshot diperbarui setiap lima detik dan memuat quote, spesifikasi simbol lengkap, account state, posisi, order, serta 250 candle tertutup untuk M5, M15, H1, H4, dan D1. Engine menolak quote yang lebih tua dari lima detik meskipun file snapshot masih diperbarui.
+
 ## Kekurangan sebelum SHADOW
 
-- Bridge v2 belum dibuat.
 - Belum ada penyimpanan PostgreSQL/Parquet.
 - Belum ada rekonsiliasi order/fill versi baru.
 - Belum ada dataset replay milik proyek baru.

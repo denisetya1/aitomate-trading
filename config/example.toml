@@ -5,6 +5,7 @@ strategy_version = "trend-pullback-v1.0.0"
 allow_real_execution = false
 
 [market_data]
+market_json = "/home/deni/.mt5-auto/drive_c/users/deni/AppData/Roaming/MetaQuotes/Terminal/Common/Files/AITradingEngineV2/market.json"
 max_quote_age_seconds = 5
 max_spread_points = 80
 require_closed_candles = true
