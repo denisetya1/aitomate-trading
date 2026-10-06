@@ -19,7 +19,7 @@ from ai_trading_engine.models import (
     TradeCandidate,
 )
 from ai_trading_engine.pipeline import evaluate_candidate
-from ai_trading_engine.scanner import notify_new_positions
+from ai_trading_engine.scanner import notify_new_positions, notify_setup_once
 from ai_trading_engine.risk import RiskPolicy, check_candidate, volume_for_risk
 from ai_trading_engine.strategy import StrategyConfig, confirmed_swings, generate_candidate
 from ai_trading_engine.validation import validate_snapshot
@@ -227,6 +227,36 @@ class PositionNotificationTests(unittest.TestCase):
         self.assertEqual(first["sent"], ["123"])
         self.assertEqual(second["sent"], [])
         self.assertEqual(len(calls), 1)
+
+    def test_candidate_and_decision_are_each_notified_once(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        calls: list[list[str]] = []
+
+        def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+            calls.append(command)
+            return subprocess.CompletedProcess(command, 0, "ok", "")
+
+        with TemporaryDirectory() as directory:
+            state = Path(directory) / "candidate-notifications.json"
+            first_candidate = notify_setup_once(
+                "setup-1", state, "candidate_setup_ids", "vission", "Kandidat", runner=runner
+            )
+            repeated_candidate = notify_setup_once(
+                "setup-1", state, "candidate_setup_ids", "vission", "Kandidat", runner=runner
+            )
+            first_decision = notify_setup_once(
+                "setup-1", state, "decision_setup_ids", "vission", "APPROVE", runner=runner
+            )
+            repeated_decision = notify_setup_once(
+                "setup-1", state, "decision_setup_ids", "vission", "APPROVE", runner=runner
+            )
+
+        self.assertTrue(first_candidate)
+        self.assertTrue(repeated_candidate)
+        self.assertTrue(first_decision)
+        self.assertTrue(repeated_decision)
+        self.assertEqual(len(calls), 2)
 
 
 if __name__ == "__main__":

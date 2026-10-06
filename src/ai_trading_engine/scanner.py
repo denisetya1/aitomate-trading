@@ -21,6 +21,50 @@ def _write_json(path: Path, payload: dict[str, object]) -> None:
     temporary.replace(path)
 
 
+def _send_telegram(
+    sender_executable: str,
+    message: str,
+    *,
+    runner: object = subprocess.run,
+) -> bool:
+    try:
+        completed = runner(  # type: ignore[operator]
+            [sender_executable, "send", "--to", "telegram", message],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return completed.returncode == 0
+
+
+def notify_setup_once(
+    setup_id: str,
+    state_path: Path,
+    state_key: str,
+    sender_executable: str,
+    message: str,
+    *,
+    runner: object = subprocess.run,
+) -> bool:
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        state = {}
+    notified = [str(value) for value in state.get(state_key, [])]
+    if setup_id in notified:
+        return True
+    if not _send_telegram(sender_executable, message, runner=runner):
+        return False
+    notified.append(setup_id)
+    state[state_key] = notified[-100:]
+    state["updated_at"] = datetime.now(timezone.utc).isoformat()
+    _write_json(state_path, state)
+    return True
+
+
 def notify_new_positions(
     positions: list[dict[str, object]],
     state_path: Path,
@@ -54,18 +98,7 @@ def notify_new_positions(
             f"TP: {float(position.get('tp', 0)):.3f}\n"
             f"Floating: {float(position.get('profit', 0)):.2f}"
         )
-        try:
-            completed = runner(  # type: ignore[operator]
-                [sender_executable, "send", "--to", "telegram", message],
-                check=False,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            failed_tickets.append(ticket)
-            continue
-        if completed.returncode == 0:
+        if _send_telegram(sender_executable, message, runner=runner):
             notified.add(ticket)
             sent_tickets.append(ticket)
         else:
@@ -123,6 +156,69 @@ def scan_once(
     if not risk.ok:
         return {"status": "risk_rejected", "reasons": risk.reasons}
 
+    notification_state = state_path.with_name("candidate-notifications.json")
+    candidate_message = (
+        "Kandidat trading ditemukan\n"
+        f"Setup: {candidate.setup_id}\n"
+        f"{candidate.direction.value} 0.01 lot {candidate.symbol}\n"
+        f"Entry sekitar {candidate.entry:.3f}\n"
+        f"SL {candidate.stop_loss:.3f}\n"
+        f"TP {candidate.take_profit:.3f}\n"
+        f"Estimasi rugi maksimum {risk.estimated_loss:.2f} dalam mata uang akun\n"
+        f"Reward/risk {risk.net_reward_risk:.2f}\n"
+        "Status: menunggu keputusan Vission"
+    )
+    candidate_notified = notify_setup_once(
+        candidate.setup_id,
+        notification_state,
+        "candidate_setup_ids",
+        sender_executable,
+        candidate_message,
+    )
+
+    validator = HermesCliValidator(executable=hermes_executable, profile="vission", timeout_seconds=90)
+    try:
+        validation = validator.validate(candidate, snapshot)
+    except HermesValidationError as exc:
+        decision_notified = notify_setup_once(
+            candidate.setup_id,
+            notification_state,
+            "decision_setup_ids",
+            sender_executable,
+            "Keputusan Vission\n"
+            f"Setup: {candidate.setup_id}\n"
+            "ABSTAIN\n"
+            f"Alasan: {exc}",
+        )
+        return {
+            "status": "ai_abstained",
+            "reason": str(exc),
+            "candidate_notified": candidate_notified,
+            "decision_notified": decision_notified,
+        }
+
+    decision_message = (
+        "Keputusan Vission\n"
+        f"Setup: {candidate.setup_id}\n"
+        f"{validation.decision.value}\n"
+        f"Probabilitas: {validation.probability:.1%}\n"
+        f"Alasan: {validation.reason}"
+    )
+    decision_notified = notify_setup_once(
+        candidate.setup_id,
+        notification_state,
+        "decision_setup_ids",
+        sender_executable,
+        decision_message,
+    )
+    if validation.decision is not Decision.APPROVE:
+        return {
+            "status": f"ai_{validation.decision.value.lower()}",
+            "reason": validation.reason,
+            "candidate_notified": candidate_notified,
+            "decision_notified": decision_notified,
+        }
+
     try:
         state = json.loads(state_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -131,15 +227,11 @@ def scan_once(
     if isinstance(last_execution, str):
         prior = datetime.fromisoformat(last_execution.replace("Z", "+00:00"))
         if now - prior < timedelta(minutes=15):
-            return {"status": "execution_cooldown"}
-
-    validator = HermesCliValidator(executable=hermes_executable, profile="vission", timeout_seconds=90)
-    try:
-        validation = validator.validate(candidate, snapshot)
-    except HermesValidationError as exc:
-        return {"status": "ai_abstained", "reason": str(exc)}
-    if validation.decision is not Decision.APPROVE:
-        return {"status": f"ai_{validation.decision.value.lower()}", "reason": validation.reason}
+            return {
+                "status": "execution_cooldown",
+                "candidate_notified": candidate_notified,
+                "decision_notified": decision_notified,
+            }
 
     features = {
         "hour_utc": now.hour,

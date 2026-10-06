@@ -10,6 +10,10 @@ Eksekusi memakai `deploy/vission/vission-trade`; perintah ini kembali memeriksa 
 
 Scanner juga memantau seluruh posisi pada akun MT5 Auto. Setiap tiket baru, termasuk posisi manual, mengirim satu notifikasi Telegram yang memuat sumber, arah, lot, harga buka, SL, TP, dan floating profit.
 
+Setiap kandidat yang lolos pemeriksaan data dan risiko dikirim ke Telegram sebelum penilaian AI. Keputusan Vission dikirim terpisah sebagai `APPROVE`, `REJECT`, atau `ABSTAIN`, lengkap dengan probabilitas dan alasannya. Eksekusi tetap otomatis setelah persetujuan dan gate pembelajaran.
+
+Instance MT5 Auto membersihkan layout chart `Default` saat startup, lalu membuka satu chart XAUUSDc H1 dengan `AITradingBridgeV2`. Ini mencegah chart duplikat bertambah setiap service direstart.
+
 ## Learning loop
 
 Vission memberikan probabilitas TP tercapai sebelum SL. Selama 30 hasil pertama, gate memakai probabilitas AI dengan ambang minimum 70% dan expected R minimum 0.20. Setelah tersedia sedikitnya 30 trade tertutup per arah, probabilitas dikalibrasi dengan posterior beta-binomial dan hasil riil broker. Sistem berhenti mengeksekusi bila expectancy historis tidak positif atau batas bawah probabilitas turun di bawah 45%.
