@@ -1,0 +1,36 @@
+[engine]
+mode = "REPLAY"
+symbol = "XAUUSDc"
+strategy_version = "trend-pullback-v1.0.0"
+allow_real_execution = false
+
+[market_data]
+max_quote_age_seconds = 5
+max_spread_points = 80
+require_closed_candles = true
+
+[risk]
+risk_per_trade_pct = 0.25
+daily_loss_limit_pct = 1.0
+max_positions = 1
+allow_add_to_loser = false
+min_net_reward_risk = 1.5
+
+[strategy]
+h1_ema_fast = 50
+h1_ema_slow = 200
+m15_ema = 20
+swing_left_bars = 3
+swing_right_bars = 3
+pullback_tolerance_atr = 0.25
+breakout_buffer_atr = 0.10
+retest_tolerance_atr = 0.15
+retest_max_m5_bars = 3
+stop_buffer_atr = 0.20
+candidate_expiry_m5_bars = 3
+
+[hermes]
+enabled = true
+profile = "edith"
+timeout_seconds = 90
+fail_closed = true
