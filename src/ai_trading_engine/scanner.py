@@ -21,6 +21,66 @@ def _write_json(path: Path, payload: dict[str, object]) -> None:
     temporary.replace(path)
 
 
+def notify_new_positions(
+    positions: list[dict[str, object]],
+    state_path: Path,
+    sender_executable: str,
+    *,
+    runner: object = subprocess.run,
+) -> dict[str, object]:
+    try:
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        state = {}
+    previous = {str(ticket) for ticket in state.get("notified_tickets", [])}
+    current = {str(item.get("ticket")) for item in positions if item.get("ticket") is not None}
+    notified = previous.intersection(current)
+    sent_tickets: list[str] = []
+    failed_tickets: list[str] = []
+
+    for position in positions:
+        ticket = str(position.get("ticket", ""))
+        if not ticket or ticket in notified:
+            continue
+        direction = "BUY" if int(position.get("type", -1)) == 0 else "SELL"
+        source = "Vission" if int(position.get("magic", 0)) == 2601001 else "Manual/EA lain"
+        message = (
+            "Posisi baru terbuka\n"
+            f"Sumber: {source}\n"
+            f"Tiket: {ticket}\n"
+            f"{direction} {float(position.get('volume', 0)):.2f} lot {position.get('symbol', '')}\n"
+            f"Harga buka: {float(position.get('price_open', 0)):.3f}\n"
+            f"SL: {float(position.get('sl', 0)):.3f}\n"
+            f"TP: {float(position.get('tp', 0)):.3f}\n"
+            f"Floating: {float(position.get('profit', 0)):.2f}"
+        )
+        try:
+            completed = runner(  # type: ignore[operator]
+                [sender_executable, "send", "--to", "telegram", message],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            failed_tickets.append(ticket)
+            continue
+        if completed.returncode == 0:
+            notified.add(ticket)
+            sent_tickets.append(ticket)
+        else:
+            failed_tickets.append(ticket)
+
+    _write_json(
+        state_path,
+        {
+            "notified_tickets": sorted(notified),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    return {"sent": sent_tickets, "failed": failed_tickets}
+
+
 def scan_once(
     market_path: Path,
     state_path: Path,
@@ -35,6 +95,11 @@ def scan_once(
         raw_snapshot = json.loads(market_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         return {"status": "snapshot_unavailable", "reason": type(exc).__name__}
+    position_notifications = notify_new_positions(
+        raw_snapshot.get("positions") or [],
+        state_path.with_name("open-positions.json"),
+        sender_executable,
+    )
     learning = PostgresCliLearningStore()
     open_position_ids = [
         int(item.get("position_id", item.get("ticket", 0)))
@@ -44,11 +109,11 @@ def scan_once(
     try:
         learning.ingest_deals(raw_snapshot.get("deals") or [], open_position_ids)
     except LearningStoreError as exc:
-        return {"status": "learning_unavailable", "reason": str(exc)}
+        return {"status": "learning_unavailable", "reason": str(exc), "position_notifications": position_notifications}
     snapshot = load_execution_snapshot(market_path)
     data = validate_snapshot(snapshot, now=now, max_quote_age=timedelta(seconds=5))
     if not data.ok:
-        return {"status": "data_rejected", "reasons": data.reasons}
+        return {"status": "data_rejected", "reasons": data.reasons, "position_notifications": position_notifications}
 
     result = generate_candidate(snapshot, StrategyConfig(fixed_volume=0.01))
     if result.candidate is None:

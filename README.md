@@ -8,6 +8,8 @@ Eksekusi memakai `deploy/vission/vission-trade`; perintah ini kembali memeriksa 
 
 `aitomate-scanner.timer` memeriksa snapshot setiap 30 detik. Pemindai diam ketika tidak ada setup, data basi, risiko ditolak, atau Vission tidak menyetujui kandidat. Percobaan eksekusi memiliki jeda 15 menit dan batas satu posisi atau pending order.
 
+Scanner juga memantau seluruh posisi pada akun MT5 Auto. Setiap tiket baru, termasuk posisi manual, mengirim satu notifikasi Telegram yang memuat sumber, arah, lot, harga buka, SL, TP, dan floating profit.
+
 ## Learning loop
 
 Vission memberikan probabilitas TP tercapai sebelum SL. Selama 30 hasil pertama, gate memakai probabilitas AI dengan ambang minimum 70% dan expected R minimum 0.20. Setelah tersedia sedikitnya 30 trade tertutup per arah, probabilitas dikalibrasi dengan posterior beta-binomial dan hasil riil broker. Sistem berhenti mengeksekusi bila expectancy historis tidak positif atau batas bawah probabilitas turun di bawah 45%.

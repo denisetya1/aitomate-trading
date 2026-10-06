@@ -19,6 +19,7 @@ from ai_trading_engine.models import (
     TradeCandidate,
 )
 from ai_trading_engine.pipeline import evaluate_candidate
+from ai_trading_engine.scanner import notify_new_positions
 from ai_trading_engine.risk import RiskPolicy, check_candidate, volume_for_risk
 from ai_trading_engine.strategy import StrategyConfig, confirmed_swings, generate_candidate
 from ai_trading_engine.validation import validate_snapshot
@@ -196,6 +197,36 @@ class LearningTests(unittest.TestCase):
         assessment = store.assess(candidate(), 0.90, 2.0)
         self.assertFalse(assessment.execute)
         self.assertEqual(assessment.expectancy_r, -0.15)
+
+
+class PositionNotificationTests(unittest.TestCase):
+    def test_new_position_is_notified_only_once(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        calls: list[list[str]] = []
+
+        def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+            calls.append(command)
+            return subprocess.CompletedProcess(command, 0, "ok", "")
+
+        position = {
+            "ticket": 123,
+            "type": 0,
+            "magic": 0,
+            "volume": 0.01,
+            "symbol": "XAUUSDc",
+            "price_open": 2600,
+            "sl": 2590,
+            "tp": 2620,
+            "profit": 1.5,
+        }
+        with TemporaryDirectory() as directory:
+            state = Path(directory) / "positions.json"
+            first = notify_new_positions([position], state, "vission", runner=runner)
+            second = notify_new_positions([position], state, "vission", runner=runner)
+        self.assertEqual(first["sent"], ["123"])
+        self.assertEqual(second["sent"], [])
+        self.assertEqual(len(calls), 1)
 
 
 if __name__ == "__main__":
