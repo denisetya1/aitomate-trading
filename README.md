@@ -28,3 +28,17 @@ python3 -m ai_trading_engine.cli doctor --market-json /path/to/market.json
 5. Execution adapter memeriksa ulang quote dan risiko sebelum tindakan apa pun.
 
 Lihat [ADR batas sistem](docs/adr/0001-system-boundaries.md), [laporan P0](docs/p0-environment-report.md), dan [aturan strategi](docs/strategy-v1.md).
+
+## PostgreSQL
+
+Database lokal dijalankan dengan Docker Compose dan hanya mendengarkan pada `127.0.0.1:5433`.
+
+```bash
+cd deploy/postgres
+cp .env.example .env
+# ganti POSTGRES_PASSWORD sebelum menjalankan container
+docker compose up -d
+docker compose ps
+```
+
+Volume `aitomate_postgres_data` menyimpan data di luar lifecycle container. Skema awal mencakup snapshot pasar, kandidat trading, keputusan Vission, event eksekusi, risk state harian, dan heartbeat engine.
