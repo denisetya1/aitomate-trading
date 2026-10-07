@@ -14,6 +14,8 @@ Setiap kandidat yang lolos pemeriksaan data dan risiko dikirim ke Telegram sebel
 
 Instance MT5 Auto membersihkan layout chart `Default` saat startup, lalu membuka satu chart XAUUSDc H1 dengan `AITradingBridgeV2`. Ini mencegah chart duplikat bertambah setiap service direstart.
 
+`AITradingBridgeV2` menyimpan screenshot chart MT5 Auto setiap 30 detik ke `MQL5/Files/AITradingEngineV2/latest.png`. Vission memakai screenshot ini bersama snapshot MT5 Auto dan tidak membaca screenshot `TelegramTradeManager` dari akun manual.
+
 ## Learning loop
 
 Vission memberikan probabilitas TP tercapai sebelum SL. Selama 30 hasil pertama, gate memakai probabilitas AI dengan ambang minimum 70% dan expected R minimum 0.20. Setelah tersedia sedikitnya 30 trade tertutup per arah, probabilitas dikalibrasi dengan posterior beta-binomial dan hasil riil broker. Sistem berhenti mengeksekusi bila expectancy historis tidak positif atau batas bawah probabilitas turun di bawah 45%.

@@ -6,6 +6,7 @@
 
 input string AnalysisSymbol = "XAUUSDc";
 input int PublishEverySeconds = 5;
+input int ScreenshotEverySeconds = 30;
 input int CandleCount = 250;
 input bool AllowRealExecution = true;
 input double FixedVolume = 0.01;
@@ -16,7 +17,25 @@ string snapshot_file = "AITradingEngineV2\\market.json";
 string temporary_file = "AITradingEngineV2\\market.json.tmp";
 string request_file = "AITradingEngineV2\\request.txt";
 string receipt_file = "AITradingEngineV2\\receipt.json";
+string screenshot_file = "AITradingEngineV2\\latest.png";
+datetime last_screenshot_at = 0;
 CTrade trade;
+
+bool CaptureChartScreenshot()
+{
+   datetime now = TimeLocal();
+   if(last_screenshot_at > 0 && now - last_screenshot_at < MathMax(1, ScreenshotEverySeconds))
+      return true;
+
+   FolderCreate(bridge_directory);
+   if(!ChartScreenShot(0, screenshot_file, 1440, 900, ALIGN_RIGHT))
+   {
+      Print("AITradingBridgeV2 screenshot failed: ", GetLastError());
+      return false;
+   }
+   last_screenshot_at = now;
+   return true;
+}
 
 void WriteReceipt(const string request_id, const string setup_id, const bool accepted,
                   const string status, const ulong order_ticket, const ulong deal_ticket)
@@ -418,6 +437,7 @@ int OnInit()
    EventSetTimer(MathMax(1, PublishEverySeconds));
    trade.SetExpertMagicNumber(ExpertMagic);
    PublishSnapshot();
+   CaptureChartScreenshot();
    ProcessRequest();
    return INIT_SUCCEEDED;
 }
@@ -430,5 +450,6 @@ void OnDeinit(const int reason)
 void OnTimer()
 {
    PublishSnapshot();
+   CaptureChartScreenshot();
    ProcessRequest();
 }
