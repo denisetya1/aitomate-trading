@@ -152,13 +152,19 @@ def scan_once(
     if result.candidate is None:
         return {"status": "no_candidate", "reason": result.reason}
     candidate = result.candidate
-    risk = check_candidate(candidate, snapshot, RiskPolicy(max_positions=1), now=now)
+    risk = check_candidate(
+        candidate,
+        snapshot,
+        RiskPolicy(max_positions=1, max_spread_points=400.0, min_net_reward_risk=1.5),
+        now=now,
+    )
     if not risk.ok:
         return {"status": "risk_rejected", "reasons": risk.reasons}
 
     notification_state = state_path.with_name("candidate-notifications.json")
     candidate_message = (
         "Kandidat trading ditemukan\n"
+        "Strategi: Scalping M15/M5\n"
         f"Setup: {candidate.setup_id}\n"
         f"{candidate.direction.value} 0.01 lot {candidate.symbol}\n"
         f"Entry sekitar {candidate.entry:.3f}\n"
@@ -226,7 +232,7 @@ def scan_once(
     last_execution = state.get("last_execution_at")
     if isinstance(last_execution, str):
         prior = datetime.fromisoformat(last_execution.replace("Z", "+00:00"))
-        if now - prior < timedelta(minutes=15):
+        if now - prior < timedelta(minutes=5):
             return {
                 "status": "execution_cooldown",
                 "candidate_notified": candidate_notified,

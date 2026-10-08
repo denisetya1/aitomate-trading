@@ -2,11 +2,11 @@
 
 Engine baru untuk satu strategi XAUUSD. Strategi, risiko, harga entry, SL, TP, dan ukuran lot dihitung secara deterministik. Hermes hanya boleh mengembalikan `APPROVE`, `REJECT`, atau `ABSTAIN` untuk kandidat yang sudah lengkap.
 
-Mode operasi saat ini adalah `REAL` otomatis dengan volume tetap `0.01` lot. Kandidat melewati pemeriksaan data, strategi, risiko, dan validasi Vission sebelum ditulis ke bridge MT5. EA menolak request kedaluwarsa, simbol yang berbeda, volume selain `0.01`, SL/TP yang tidak valid, dan request duplikat.
+Mode operasi saat ini adalah `REAL` otomatis dengan volume tetap `0.01` lot. Strategi aktif adalah scalping XAUUSDc: bias EMA20/EMA50 pada M15, konfirmasi EMA9/EMA21 dan breakout lima candle pada M5, stop berdasarkan struktur M5, dan target 2,2R. Kandidat melewati pemeriksaan data, strategi, risiko, dan validasi Vission sebelum ditulis ke bridge MT5. EA menolak request kedaluwarsa, simbol yang berbeda, volume selain `0.01`, SL/TP yang tidak valid, dan request duplikat.
 
 Eksekusi memakai `deploy/vission/vission-trade`; perintah ini kembali memeriksa umur quote, spread, posisi aktif, ukuran risiko, dan reward/risk sebelum meneruskan order ke MT5. Telegram menerima laporan hasil beserta receipt broker setelah setiap percobaan eksekusi.
 
-`aitomate-scanner.timer` memeriksa snapshot setiap 30 detik. Pemindai diam ketika tidak ada setup, data basi, risiko ditolak, atau Vission tidak menyetujui kandidat. Percobaan eksekusi memiliki jeda 15 menit dan batas satu posisi atau pending order.
+`aitomate-scanner.timer` memeriksa snapshot setiap 10 detik. Pemindai diam ketika tidak ada setup, data basi, risiko ditolak, atau Vission tidak menyetujui kandidat. Percobaan eksekusi memiliki jeda 5 menit dan batas satu posisi atau pending order. Batas spread scalping adalah 0,400 pada XAUUSDc.
 
 Scanner juga memantau seluruh posisi pada akun MT5 Auto. Setiap tiket baru, termasuk posisi manual, mengirim satu notifikasi Telegram yang memuat sumber, arah, lot, harga buka, SL, TP, dan floating profit.
 

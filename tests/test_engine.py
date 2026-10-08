@@ -49,7 +49,7 @@ def snapshot(**changes: object) -> MarketSnapshot:
 def candidate(**changes: object) -> TradeCandidate:
     values = {
         "setup_id": "setup-1",
-        "strategy_version": "trend-pullback-v1.0.0",
+        "strategy_version": "xau-scalping-v1.0.0",
         "snapshot_id": "snap-1",
         "created_at": NOW,
         "expires_at": NOW + timedelta(minutes=15),
@@ -89,6 +89,52 @@ class StrategyTests(unittest.TestCase):
         result = generate_candidate(snapshot(), StrategyConfig())
         self.assertIsNone(result.candidate)
         self.assertEqual(result.reason, "insufficient_closed_candles")
+
+    def test_scalping_strategy_creates_buy_candidate_from_m15_bias_and_m5_breakout(self) -> None:
+        def rising_candles(count: int, minutes: int, start: float, step: float) -> list[Candle]:
+            first_open = NOW - timedelta(minutes=count * minutes)
+            candles: list[Candle] = []
+            for index in range(count):
+                open_price = start + index * step
+                close_price = open_price + step * 0.75
+                candles.append(
+                    Candle(
+                        first_open + timedelta(minutes=index * minutes),
+                        first_open + timedelta(minutes=(index + 1) * minutes),
+                        open_price,
+                        close_price + step * 0.10,
+                        open_price - step * 0.10,
+                        close_price,
+                    )
+                )
+            return candles
+
+        m15 = rising_candles(60, 15, 2500.0, 0.40)
+        m5 = rising_candles(30, 5, 2520.0, 0.20)
+        latest_close = m5[-1].close
+        market = snapshot(
+            quote=Quote(NOW, latest_close + 0.01, latest_close + 0.06),
+            candles={"M15": m15, "M5": m5},
+        )
+
+        result = generate_candidate(market, StrategyConfig())
+
+        self.assertEqual(result.reason, "scalping_candidate_created")
+        self.assertIsNotNone(result.candidate)
+        assert result.candidate is not None
+        self.assertEqual(result.candidate.direction, Direction.BUY)
+        self.assertEqual(result.candidate.volume, 0.01)
+        self.assertAlmostEqual(
+            result.candidate.take_profit - result.candidate.entry,
+            2.20 * (result.candidate.entry - result.candidate.stop_loss),
+        )
+        risk = check_candidate(
+            result.candidate,
+            market,
+            RiskPolicy(max_spread_points=400.0),
+            now=NOW,
+        )
+        self.assertTrue(risk.ok, risk.reasons)
 
 
 class RiskTests(unittest.TestCase):

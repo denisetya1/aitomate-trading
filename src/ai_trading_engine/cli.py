@@ -153,7 +153,12 @@ def submit_real_order(
         take_profit=take_profit,
         volume=0.01,
     )
-    risk = check_candidate(candidate, snapshot, RiskPolicy(max_positions=1), now=now)
+    risk = check_candidate(
+        candidate,
+        snapshot,
+        RiskPolicy(max_positions=1, max_spread_points=400.0, min_net_reward_risk=1.5),
+        now=now,
+    )
     if not risk.ok:
         print(json.dumps({"ok": False, "error": "risk_rejected", "reasons": risk.reasons}))
         return 4
