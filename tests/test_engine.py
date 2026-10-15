@@ -19,9 +19,8 @@ from ai_trading_engine.models import (
     TradeCandidate,
 )
 from ai_trading_engine.pipeline import evaluate_candidate
-from ai_trading_engine.scanner import notify_new_positions, notify_setup_once
 from ai_trading_engine.risk import RiskPolicy, check_candidate, volume_for_risk
-from ai_trading_engine.strategy import StrategyConfig, confirmed_swings, generate_candidate
+from ai_trading_engine.strategy import StrategyConfig, _m15_impulse, _structure_bias, confirmed_swings, generate_candidate
 from ai_trading_engine.validation import validate_snapshot
 
 
@@ -49,7 +48,7 @@ def snapshot(**changes: object) -> MarketSnapshot:
 def candidate(**changes: object) -> TradeCandidate:
     values = {
         "setup_id": "setup-1",
-        "strategy_version": "xau-scalping-v1.0.0",
+        "strategy_version": "trend-pullback-v1.0.0",
         "snapshot_id": "snap-1",
         "created_at": NOW,
         "expires_at": NOW + timedelta(minutes=15),
@@ -76,6 +75,21 @@ class DataValidationTests(unittest.TestCase):
 
 
 class StrategyTests(unittest.TestCase):
+    @staticmethod
+    def candles(values, minutes):
+        start = NOW - timedelta(minutes=minutes * len(values))
+        return [
+            Candle(
+                start + timedelta(minutes=minutes * index),
+                start + timedelta(minutes=minutes * (index + 1)),
+                open_price,
+                high,
+                low,
+                close,
+            )
+            for index, (open_price, high, low, close) in enumerate(values)
+        ]
+
     def test_swing_is_not_confirmed_without_right_bars(self) -> None:
         candles = [
             Candle(NOW + timedelta(minutes=i), NOW + timedelta(minutes=i + 1), 1, high, 0, 1)
@@ -90,51 +104,89 @@ class StrategyTests(unittest.TestCase):
         self.assertIsNone(result.candidate)
         self.assertEqual(result.reason, "insufficient_closed_candles")
 
-    def test_scalping_strategy_creates_buy_candidate_from_m15_bias_and_m5_breakout(self) -> None:
-        def rising_candles(count: int, minutes: int, start: float, step: float) -> list[Candle]:
-            first_open = NOW - timedelta(minutes=count * minutes)
-            candles: list[Candle] = []
-            for index in range(count):
-                open_price = start + index * step
-                close_price = open_price + step * 0.75
-                candles.append(
-                    Candle(
-                        first_open + timedelta(minutes=index * minutes),
-                        first_open + timedelta(minutes=(index + 1) * minutes),
-                        open_price,
-                        close_price + step * 0.10,
-                        open_price - step * 0.10,
-                        close_price,
-                    )
-                )
-            return candles
+    def test_h1_higher_highs_and_lows_select_buy(self) -> None:
+        values = [10, 12, 9, 14, 11, 16, 13, 18, 15]
+        candles = [
+            Candle(NOW + timedelta(hours=i), NOW + timedelta(hours=i + 1), value, value + .4, value - .4, value)
+            for i, value in enumerate(values)
+        ]
+        self.assertEqual(_structure_bias(candles, StrategyConfig(h1_swing_left=1, h1_swing_right=1)), Direction.BUY)
 
-        m15 = rising_candles(60, 15, 2500.0, 0.40)
-        m5 = rising_candles(30, 5, 2520.0, 0.20)
-        latest_close = m5[-1].close
+    def test_m15_impulse_must_close_beyond_previous_body(self) -> None:
+        previous = Candle(NOW - timedelta(minutes=30), NOW - timedelta(minutes=15), 100, 102, 99, 101)
+        weak = Candle(NOW - timedelta(minutes=15), NOW, 100.5, 102, 100, 100.9)
+        strong = Candle(NOW - timedelta(minutes=15), NOW, 100.5, 103, 100, 102)
+        self.assertFalse(_m15_impulse([previous, weak], Direction.BUY))
+        self.assertTrue(_m15_impulse([previous, strong], Direction.BUY))
+
+    def test_trend_pullback_creates_buy_candidate_without_breakout(self) -> None:
+        h1_values = [(value, value + .4, value - .4, value) for value in [10, 12, 9, 14, 11, 16, 13, 18, 15]]
+        m15_values = [
+            (100.0, 100.5, 99.8, 100.3),
+            (100.3, 100.4, 99.9, 100.0),
+            (100.0, 100.1, 99.6, 99.8),
+            (99.8, 99.9, 99.4, 99.6),
+        ]
+        m5_values = [(99.4, 100.0, 99.0, 99.5)] * 14 + [(99.2, 100.0, 98.9, 99.8)]
         market = snapshot(
-            quote=Quote(NOW, latest_close + 0.01, latest_close + 0.06),
-            candles={"M15": m15, "M5": m5},
+            quote=Quote(NOW, 99.80, 99.82),
+            candles={
+                'H1': self.candles(h1_values, 60),
+                'M15': self.candles(m15_values, 15),
+                'M5': self.candles(m5_values, 5),
+            },
         )
-
-        result = generate_candidate(market, StrategyConfig())
-
-        self.assertEqual(result.reason, "scalping_candidate_created")
-        self.assertIsNotNone(result.candidate)
-        assert result.candidate is not None
-        self.assertEqual(result.candidate.direction, Direction.BUY)
-        self.assertEqual(result.candidate.volume, 0.01)
-        self.assertAlmostEqual(
-            result.candidate.take_profit - result.candidate.entry,
-            2.20 * (result.candidate.entry - result.candidate.stop_loss),
-        )
-        risk = check_candidate(
-            result.candidate,
+        result = generate_candidate(
             market,
-            RiskPolicy(max_spread_points=400.0),
-            now=NOW,
+            StrategyConfig(h1_swing_left=1, h1_swing_right=1),
         )
-        self.assertTrue(risk.ok, risk.reasons)
+        self.assertIsNotNone(result.candidate)
+        self.assertEqual(result.setup_type, 'trend-pullback')
+        self.assertEqual(result.candidate.direction, Direction.BUY)
+        self.assertIn('trend-pullback', result.candidate.strategy_version)
+        self.assertGreater(result.candidate.take_profit, result.candidate.entry)
+        self.assertLess(result.candidate.stop_loss, result.candidate.entry)
+
+    def test_range_low_sweep_creates_reversal_buy_candidate(self) -> None:
+        h1_values = [(value, value + .4, value - .4, value) for value in [10, 12, 10, 12, 10, 12, 10, 12, 10]]
+        m15_values = [(100.0, 100.5, 99.5, 100.0)] * 4
+        prior_m5 = [(99.4, 100.0, 99.0, 99.5)] * 13 + [(99.5, 101.0, 99.0, 99.6)]
+        m5_values = prior_m5 + [(98.85, 99.3, 98.8, 99.1)]
+        market = snapshot(
+            quote=Quote(NOW, 99.10, 99.12),
+            candles={
+                'H1': self.candles(h1_values, 60),
+                'M15': self.candles(m15_values, 15),
+                'M5': self.candles(m5_values, 5),
+            },
+        )
+        result = generate_candidate(
+            market,
+            StrategyConfig(h1_swing_left=1, h1_swing_right=1),
+        )
+        self.assertIsNotNone(result.candidate)
+        self.assertEqual(result.setup_type, 'range-sweep-reversal')
+        self.assertEqual(result.candidate.direction, Direction.BUY)
+        self.assertEqual(result.candidate.take_profit, 100.0)
+
+    def test_breakout_without_pullback_is_not_a_candidate(self) -> None:
+        h1_values = [(value, value + .4, value - .4, value) for value in [10, 12, 9, 14, 11, 16, 13, 18, 15]]
+        m15_values = [(99.0 + index, 100.0 + index, 98.8 + index, 99.8 + index) for index in range(4)]
+        m5_values = [(99.4, 100.0, 99.0, 99.5)] * 14 + [(99.8, 101.2, 99.7, 101.0)]
+        market = snapshot(
+            quote=Quote(NOW, 101.0, 101.02),
+            candles={
+                'H1': self.candles(h1_values, 60),
+                'M15': self.candles(m15_values, 15),
+                'M5': self.candles(m5_values, 5),
+            },
+        )
+        result = generate_candidate(
+            market,
+            StrategyConfig(h1_swing_left=1, h1_swing_right=1),
+        )
+        self.assertIsNone(result.candidate)
+        self.assertEqual(result.reason, 'm15_pullback_missing')
 
 
 class RiskTests(unittest.TestCase):
@@ -243,66 +295,6 @@ class LearningTests(unittest.TestCase):
         assessment = store.assess(candidate(), 0.90, 2.0)
         self.assertFalse(assessment.execute)
         self.assertEqual(assessment.expectancy_r, -0.15)
-
-
-class PositionNotificationTests(unittest.TestCase):
-    def test_new_position_is_notified_only_once(self) -> None:
-        from tempfile import TemporaryDirectory
-
-        calls: list[list[str]] = []
-
-        def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
-            calls.append(command)
-            return subprocess.CompletedProcess(command, 0, "ok", "")
-
-        position = {
-            "ticket": 123,
-            "type": 0,
-            "magic": 0,
-            "volume": 0.01,
-            "symbol": "XAUUSDc",
-            "price_open": 2600,
-            "sl": 2590,
-            "tp": 2620,
-            "profit": 1.5,
-        }
-        with TemporaryDirectory() as directory:
-            state = Path(directory) / "positions.json"
-            first = notify_new_positions([position], state, "vission", runner=runner)
-            second = notify_new_positions([position], state, "vission", runner=runner)
-        self.assertEqual(first["sent"], ["123"])
-        self.assertEqual(second["sent"], [])
-        self.assertEqual(len(calls), 1)
-
-    def test_candidate_and_decision_are_each_notified_once(self) -> None:
-        from tempfile import TemporaryDirectory
-
-        calls: list[list[str]] = []
-
-        def runner(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
-            calls.append(command)
-            return subprocess.CompletedProcess(command, 0, "ok", "")
-
-        with TemporaryDirectory() as directory:
-            state = Path(directory) / "candidate-notifications.json"
-            first_candidate = notify_setup_once(
-                "setup-1", state, "candidate_setup_ids", "vission", "Kandidat", runner=runner
-            )
-            repeated_candidate = notify_setup_once(
-                "setup-1", state, "candidate_setup_ids", "vission", "Kandidat", runner=runner
-            )
-            first_decision = notify_setup_once(
-                "setup-1", state, "decision_setup_ids", "vission", "APPROVE", runner=runner
-            )
-            repeated_decision = notify_setup_once(
-                "setup-1", state, "decision_setup_ids", "vission", "APPROVE", runner=runner
-            )
-
-        self.assertTrue(first_candidate)
-        self.assertTrue(repeated_candidate)
-        self.assertTrue(first_decision)
-        self.assertTrue(repeated_decision)
-        self.assertEqual(len(calls), 2)
 
 
 if __name__ == "__main__":

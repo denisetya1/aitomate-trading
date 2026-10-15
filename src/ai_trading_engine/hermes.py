@@ -4,7 +4,7 @@ import json
 import subprocess
 import tempfile
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -58,12 +58,14 @@ class HermesCliValidator:
         self,
         executable: str = "hermes",
         profile: str = "vission",
+        model: str = "gpt-6-luna",
         timeout_seconds: int = 90,
         runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     ) -> None:
         self.executable = executable
         self.profile = profile
+        self.model = model
         self.timeout_seconds = timeout_seconds
         self.runner = runner
         self.clock = clock
@@ -76,6 +78,10 @@ class HermesCliValidator:
                 self.executable,
                 "-p",
                 self.profile,
+                "-m",
+                self.model,
+                "--reasoning",
+                "low",
                 "--safe-mode",
                 "--usage-file",
                 str(usage_file),
@@ -90,14 +96,25 @@ class HermesCliValidator:
                     text=True,
                     timeout=self.timeout_seconds,
                 )
-            except (OSError, subprocess.TimeoutExpired) as exc:
-                raise HermesValidationError("Hermes invocation failed") from exc
+            except subprocess.TimeoutExpired as exc:
+                raise HermesValidationError(
+                    f"Hermes validation timed out after {self.timeout_seconds} seconds"
+                ) from exc
+            except OSError as exc:
+                raise HermesValidationError(
+                    f"Hermes could not be started: {exc.__class__.__name__}"
+                ) from exc
         if completed.returncode != 0:
             raise HermesValidationError(f"Hermes exited with code {completed.returncode}")
-        return parse_validation(completed.stdout, candidate, self.clock())
+        now = self.clock()
+        age = now - snapshot.captured_at
+        if age > timedelta(seconds=30) or age < timedelta(seconds=-1):
+            raise HermesValidationError("AI context exceeds 30 seconds or is future-dated")
+        return parse_validation(completed.stdout, candidate, now)
 
     @staticmethod
     def _prompt(candidate: TradeCandidate, snapshot: MarketSnapshot) -> str:
+        candle_limits = {"M5": 30, "M15": 60, "H1": 60, "H4": 12, "D1": 5}
         payload = {
             "candidate": _json_safe(asdict(candidate)),
             "market": {
@@ -108,12 +125,39 @@ class HermesCliValidator:
                 "ask": snapshot.quote.ask,
                 "open_positions": snapshot.open_positions,
                 "pending_orders": snapshot.pending_orders,
+                "candle_format": ["close_time", "open", "high", "low", "close", "volume"],
+                "candles": {
+                    tf: [
+                        [
+                            candle.close_time.isoformat(),
+                            candle.open,
+                            candle.high,
+                            candle.low,
+                            candle.close,
+                            candle.volume,
+                        ]
+                        for candle in snapshot.closed_candles(tf)[-candle_limits.get(tf, 10):]
+                    ]
+                    for tf in snapshot.candles
+                },
             },
         }
         return (
             "You validate a fully specified deterministic trade candidate. "
             "Do not propose or modify parameters. Return exactly one JSON object with keys "
+            "This is setup-context validation, not execution authorization. Context may be up to 30 seconds old at decision time. "
+            "The engine enforces this age and separately reloads quotes no older than 5 seconds, "
+            "revalidates the same setup, entry range and risk before execution. A changed snapshot ID alone is not a reason to abstain. "
+            "The serialized Input is the complete and authoritative evidence for this validation. "
+            "Do not access or require any filesystem snapshot, chart screenshot, external tool, or additional data. "
+            "The deterministic adaptive price-action engine has already classified the setup as either a trend pullback "
+            "or a range liquidity-sweep reversal. It has confirmed the required H1 regime, M15 context, M5 rejection, "
+            "reference level, structure stop, target and risk checks. The strategy type is in candidate.strategy_version. "
+            "Use only the supplied candles to assess whether that specific setup remains coherent and estimate TP-before-SL probability. "
+            "Do not require EMA, RSI, ATR, screenshots, news, or another indicator. "
+            "Use the supplied closed candles; abstain only when those supplied market facts conflict or are insufficient. "
             "decision (APPROVE, REJECT, or ABSTAIN), setup_id, probability (0..1), and reason. "
+            "Keep reason under 240 characters. "
             "Probability means the estimated chance that TP is reached before SL; do not inflate it. "
             f"Input: {json.dumps(payload, separators=(',', ':'))}"
         )

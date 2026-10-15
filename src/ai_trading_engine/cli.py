@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import time
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -124,6 +125,7 @@ def submit_real_order(
     stop_loss: float,
     take_profit: float,
     confirmation: str,
+    approved_candidate: TradeCandidate | None = None,
 ) -> int:
     try:
         snapshot = load_execution_snapshot(market_path)
@@ -137,6 +139,13 @@ def submit_real_order(
         print(json.dumps({"ok": False, "error": "data_rejected", "reasons": data_check.reasons}))
         return 3
 
+    if approved_candidate is not None:
+        from .revalidation import revalidate_approved
+        refreshed = revalidate_approved(approved_candidate, snapshot, now=now)
+        if refreshed.candidate is None:
+            print(json.dumps({"ok": False, "error": "approved_setup_invalid", "reason": refreshed.reason}))
+            return 4
+
     entry = snapshot.quote.ask if direction is Direction.BUY else snapshot.quote.bid
     seed = f"{snapshot.snapshot_id}|{direction.value}|{stop_loss:.8f}|{take_profit:.8f}"
     setup_id = hashlib.sha256(seed.encode("ascii")).hexdigest()[:20]
@@ -145,7 +154,7 @@ def submit_real_order(
         strategy_version="vission-confirmed-v1",
         snapshot_id=snapshot.snapshot_id,
         created_at=now,
-        expires_at=now + timedelta(minutes=2),
+        expires_at=min(now + timedelta(minutes=2), approved_candidate.expires_at) if approved_candidate else now + timedelta(minutes=2),
         symbol=snapshot.symbol,
         direction=direction,
         entry=entry,
@@ -208,6 +217,16 @@ def confirm_pending_order(market_path: Path, bridge_directory: Path, pending_pat
         direction = Direction(str(pending["direction"]))
         stop_loss = float(pending["stop_loss"])
         take_profit = float(pending["take_profit"])
+        approved = None
+        if "approved_candidate" in pending:
+            values = dict(pending["approved_candidate"])
+            values["direction"] = Direction(values["direction"])
+            for key in ("created_at", "expires_at"):
+                values[key] = datetime.fromisoformat(values[key].replace("Z", "+00:00"))
+            approved = TradeCandidate(**values)
+            approved = replace(approved, expires_at=min(approved.expires_at, expires_at))
+            if (direction, stop_loss, take_profit) != (approved.direction, approved.stop_loss, approved.take_profit):
+                raise ValueError("pending parameters differ from approved candidate")
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
         print(json.dumps({"ok": False, "error": f"invalid_or_missing_pending:{type(exc).__name__}"}))
         return 2
@@ -222,6 +241,7 @@ def confirm_pending_order(market_path: Path, bridge_directory: Path, pending_pat
         stop_loss,
         take_profit,
         confirmation,
+        approved_candidate=approved,
     )
     if result == 0:
         pending_path.unlink(missing_ok=True)

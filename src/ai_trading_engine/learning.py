@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import subprocess
@@ -183,4 +184,23 @@ class PostgresCliLearningStore:
             f"{risk.estimated_loss},{risk.net_reward_risk},{_sql_text(gate)},"
             f"{_sql_text(assessment.reason)},{_sql_text(validation.reason)}) "
             "ON CONFLICT (setup_id) DO NOTHING;"
+        )
+
+
+    def record_paper_outcome(
+        self,
+        setup_id: str,
+        closed_at: str,
+        pnl: float,
+        r_multiple: float,
+        won: bool,
+    ) -> None:
+        position_id = -int(hashlib.sha256(setup_id.encode("utf-8")).hexdigest()[:15], 16)
+        self._run(
+            "INSERT INTO learning_outcomes "
+            "(setup_id,position_id,closed_at,pnl,r_multiple,won) VALUES ("
+            f"{_sql_text(setup_id)},{position_id},{_sql_text(closed_at)}::timestamptz,"
+            f"{pnl},{r_multiple},{'true' if won else 'false'}) "
+            "ON CONFLICT (setup_id) DO UPDATE SET closed_at=EXCLUDED.closed_at,"
+            "pnl=EXCLUDED.pnl,r_multiple=EXCLUDED.r_multiple,won=EXCLUDED.won,updated_at=now();"
         )
